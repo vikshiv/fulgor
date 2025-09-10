@@ -11,7 +11,7 @@ int kmer_conservation(FulgorIndex const& index,
                       fastx_parser::FastxParser<fastx_parser::ReadSeq>& rparser,
                       std::atomic<uint64_t>& num_reads, std::atomic<uint64_t>& num_processed_reads,
                       std::ofstream& out_file, std::mutex& iomut, std::mutex& ofile_mut,
-                      const bool verbose)  //
+                      const bool verbose, const bool bedGraph)  //
 {
     std::vector<kmer_conservation_triple> kmer_conservation_info;
     std::stringstream ss;
@@ -30,14 +30,21 @@ int kmer_conservation(FulgorIndex const& index,
             buff_size += 1;
             if (!kmer_conservation_info.empty()) {
                 num_processed_reads += 1;
+                if (bedGraph) {
+                    for (auto kct : kmer_conservation_info) {
+                        ss << record.name << '\t' << kct.start_pos_in_query << '\t' << kct.start_pos_in_query + kct.num_kmers << '\t' << kct.color_set_id << '\n';
+                    }
+                } else {
                 ss << record.name << '\t' << kmer_conservation_info.size();
                 for (auto kct : kmer_conservation_info) {
                     ss << "\t(" << kct.start_pos_in_query << ' ' << kct.num_kmers << ' '
                        << kct.color_set_id << ')';
+                    }
                 }
                 ss << '\n';
             } else {
-                ss << record.name << "\t0\n";
+                if (!bedGraph)
+                    ss << record.name << "\t0\n";
             }
             num_reads += 1;
             kmer_conservation_info.clear();
@@ -73,7 +80,7 @@ int kmer_conservation(FulgorIndex const& index,
 template <typename FulgorIndex>
 int kmer_conservation(std::string const& index_filename, std::string const& query_filename,
                       std::string const& output_filename, const uint64_t num_threads,
-                      const bool verbose) {
+                      const bool verbose, const bool bedGraph) {
     FulgorIndex index;
     if (verbose) essentials::logger("loading index from disk...");
     essentials::load(index, index_filename.c_str());
@@ -112,9 +119,9 @@ int kmer_conservation(std::string const& index_filename, std::string const& quer
 
     for (uint64_t i = 1; i != num_threads; ++i) {
         workers.push_back(std::thread([&index, &rparser, &num_reads, &num_processed_reads,
-                                       &out_file, &iomut, &ofile_mut, verbose]() {
+                                       &out_file, &iomut, &ofile_mut, verbose, bedGraph]() {
             kmer_conservation(index, rparser, num_reads, num_processed_reads, out_file, iomut,
-                              ofile_mut, verbose);
+                              ofile_mut, verbose, bedGraph);
         }));
     }
 
@@ -149,11 +156,15 @@ int kmer_conservation(int argc, char** argv) {
     parser.add("num_threads", "Number of threads (default is 1).", "-t", false);
     parser.add("verbose", "Verbose output during query (default is false).", "--verbose", false,
                true);
+    parser.add("bedGraph", "Output kmer conservation as a bedGraph file.", "--bedGraph", false,
+               true);
     if (!parser.parse()) return 1;
 
     auto index_filename = parser.get<std::string>("index_filename");
     auto query_filename = parser.get<std::string>("query_filename");
     auto output_filename = parser.get<std::string>("output_filename");
+
+    bool bedGraph = parser.get<bool>("bedGraph");
 
     uint64_t num_threads = 1;
     if (parser.parsed("num_threads")) num_threads = parser.get<uint64_t>("num_threads");
@@ -170,18 +181,18 @@ int kmer_conservation(int argc, char** argv) {
     if (sshash::util::ends_with(index_filename,
                                 constants::meta_diff_colored_fulgor_filename_extension)) {
         return kmer_conservation<meta_differential_index_type>(
-            index_filename, query_filename, output_filename, num_threads, verbose);
+            index_filename, query_filename, output_filename, num_threads, verbose, bedGraph);
     } else if (sshash::util::ends_with(index_filename,
                                        constants::meta_colored_fulgor_filename_extension)) {
         return kmer_conservation<meta_index_type>(index_filename, query_filename, output_filename,
-                                                  num_threads, verbose);
+                                                  num_threads, verbose, bedGraph);
     } else if (sshash::util::ends_with(index_filename,
                                        constants::diff_colored_fulgor_filename_extension)) {
         return kmer_conservation<differential_index_type>(index_filename, query_filename,
-                                                          output_filename, num_threads, verbose);
+                                                          output_filename, num_threads, verbose, bedGraph);
     } else if (sshash::util::ends_with(index_filename, constants::fulgor_filename_extension)) {
         return kmer_conservation<index_type>(index_filename, query_filename, output_filename,
-                                             num_threads, verbose);
+                                             num_threads, verbose, bedGraph);
     }
 
     std::cerr << "Wrong index filename supplied." << std::endl;

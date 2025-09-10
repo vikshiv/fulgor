@@ -22,7 +22,7 @@ void index<ColorSets>::kmer_conservation(
     auto push_triple = [&]() {
         if (prev_color_set_id != invalid) {
             assert(kct.num_kmers != 0);
-            kct.color_set_id = prev_color_set_id;
+            kct.color_set_id = color_set(prev_color_set_id).size();
             kmer_conservation_info.push_back(kct);
         }
     };
